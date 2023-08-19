@@ -1,0 +1,171 @@
+import streamlit as st
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+import json
+import os
+import pandas as pd
+import re
+import requests
+import time
+
+SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+
+def is_valid_json(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            json.load(file)
+        return True
+    except json.JSONDecodeError:
+        return False
+
+def get_credentials():
+    flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+    creds = flow.run_local_server(port=0)
+    return creds
+
+def get_subfolder_names(folder_id, service):
+    subfolder_names = []
+    subfolder_ids = []
+    try:
+        response = service.files().list(
+            q=f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder'",
+            spaces='drive',
+            fields='files(id, name)',
+            pageToken=None
+        ).execute()
+
+        subfolder_names = [file['name'] for file in response.get('files', [])]
+        subfolder_ids = [file['id'] for file in response.get('files', [])]
+
+    except HttpError as error:
+        print(f'An error occurred: {error}')
+
+    return subfolder_names, subfolder_ids
+
+def create_public_link(file_id, service):
+    try:
+        permission = {
+            'type': 'anyone',
+            'role': 'writer'
+        }
+        service.permissions().create(fileId=file_id, body=permission).execute()
+        file = service.files().get(fileId=file_id, fields='webViewLink').execute()
+        return file['webViewLink']
+    except HttpError as error:
+        print(f'An error occurred: {error}')
+
+def update_google_sheet(sheet_id, data, creds):
+    service = build('sheets', 'v4', credentials=creds)
+    body = {
+        'values': data
+    }
+    result = service.spreadsheets().values().append(
+        spreadsheetId=sheet_id,
+        range='A1',
+        valueInputOption='RAW',
+        body=body
+    ).execute()
+
+def extract_id_from_url(url):
+    match = re.search(r'(?<=folders/)[a-zA-Z0-9_-]+', url)
+    if match:
+        return match.group(0)
+    match = re.search(r'(?<=spreadsheets/d/)[a-zA-Z0-9_-]+', url)
+    if match:
+        return match.group(0)
+    return None
+
+
+try:   
+    if 'begin_auth' not in st.session_state:
+        st.session_state['creds'] = ""
+        st.session_state['begin_auth'] = False
+        st.session_state['final_auth'] = False
+
+except:
+    print(e)
+
+st.subheader("Google authentication")
+
+try:
+    if st.button("Authenticate Google Account"):
+        st.session_state['begin_auth'] = True
+        # Request OAuth URL from the FastAPI backend
+        response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/auth?user_id={'intros'}")
+        if response.status_code == 200:
+            # Get the authorization URL from the response
+            auth_url = response.json().get('authorization_url')
+            st.markdown(f"""
+                <a href="{auth_url}" target="_blank" style="color: #8cdaf2;">
+                    Click to continue to authentication page (before finalizing)
+
+
+                </a>
+                """, unsafe_allow_html=True)
+            st.text("\n\n\n")
+            # Redirect user to the OAuth URL
+            # nav_to(auth_url)
+
+    if st.session_state['begin_auth']:    
+        if st.button("Finalize Google Authentication"):
+            with st.spinner("Finalizing authentication..."):
+                for i in range(6):
+                    # Request token from the FastAPI backend
+                    response = requests.get(f"{'https://photo-labeler-842ac8d73e7a.herokuapp.com'}/token/{'sheets'}")
+                    if response.status_code == 200:
+                        st.session_state['creds'] = response.json().get('creds')
+                        print(st.session_state['creds'])
+                        st.success("Google account successfully authenticated!")
+                        st.session_state['final_auth'] = True
+                        break
+                    time.sleep(1)
+            if not st.session_state['final_auth']:
+                st.error('Experiencing network issues, please refresh page and try again.')
+                st.session_state['begin_auth'] = False
+
+except Exception as e:
+    print(e)
+
+st.subheader('Google Drive Sharing Links Tool')
+
+folder_url = st.text_input('Enter your Google Drive folder URL:')
+sheet_url = st.text_input('Enter your Google Sheet URL:')
+
+if st.button('Get Subfolder Info'):
+    folder_id = extract_id_from_url(folder_url)
+    sheet_id = extract_id_from_url(sheet_url)
+    
+    # Google Drive service setup
+    CLIENT_SECRET_FILE = 'credentials.json'
+    API_NAME = 'drive'
+    API_VERSION = 'v3'
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    with open(CLIENT_SECRET_FILE, 'r') as f:
+        client_info = json.load(f)['web']
+
+    creds_dict = st.session_state['creds']
+    creds_dict['client_id'] = client_info['client_id']
+    creds_dict['client_secret'] = client_info['client_secret']
+    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+    # Create Credentials from creds_dict
+    creds = Credentials.from_authorized_user_info(creds_dict)
+
+    # Build the Google Drive service
+    drive_service = build('drive', 'v3', credentials=creds)
+
+    subfolder_names, subfolder_ids = get_subfolder_names(folder_id, drive_service)
+
+    data = []
+    for name, folder_id in zip(subfolder_names, subfolder_ids):
+        link = create_public_link(folder_id, drive_service)
+        data.append([name, link])
+
+    update_google_sheet(sheet_id, data, creds)
+
+    df = pd.DataFrame(data, columns=['Folder Name', 'Shared Link'])
+    st.table(df)
+
