@@ -11,6 +11,8 @@ import requests
 import time
 
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+hide_streamlit_style = """ <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style> """ 
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 
 def is_valid_json(file_path):
     try:
@@ -25,12 +27,18 @@ def get_credentials():
     creds = flow.run_local_server(port=0)
     return creds
 
-def get_subfolder_names(folder_id, service):
+def get_subfolder_names(folder_id, service, input_type):
     subfolder_names = []
     subfolder_ids = []
+    query = ''
+    if input_type == 'Files':
+        query = f"'{folder_id}' in parents and mimeType!='application/vnd.google-apps.folder'"
+    else:
+        query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder'"
+
     try:
         response = service.files().list(
-            q=f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder'",
+            q=query,
             spaces='drive',
             fields='files(id, name)',
             pageToken=None
@@ -56,14 +64,14 @@ def create_public_link(file_id, service):
     except HttpError as error:
         print(f'An error occurred: {error}')
 
-def update_google_sheet(sheet_id, data, creds):
+def update_google_sheet(sheet_id, data, creds, starting_cell):
     service = build('sheets', 'v4', credentials=creds)
     body = {
         'values': data
     }
     result = service.spreadsheets().values().append(
         spreadsheetId=sheet_id,
-        range='A1',
+        range=starting_cell,
         valueInputOption='RAW',
         body=body
     ).execute()
@@ -86,6 +94,21 @@ try:
 
 except:
     print(e)
+
+# Title of the app
+st.title("LI Office Editor")
+st.caption("By Giacomo Pugliese")
+
+with st.expander("Click to view full directions for this site"):
+    st.subheader("IDs and Doortags")
+    st.write("- Select which template you want to make, as well as the google drive folder ids for your photos and intended output destination.")
+    st.write("- If using an intern template, also indicate which program the interns are in")
+    st.write("- Upload a csv with columns PRECISELY titled 'name', 'role' (high school for interns, job description for staff), 'location', and 'class' (you can omit class column if using a staff template)")
+    st.write("- Click 'Process Tags' to being renderings of the chosen template and view them in your destination google drive folder'")
+    st.subheader("Video Intro Generator")
+    st.write("- Enter the intended output google drive folder id, as well as the program name of the students")
+    st.write("- Upload a csv with columns PRECISELY titled 'name', 'school', 'location', and 'class'")
+    st.write("- Click 'Process Videos' to being intro video renderings and view them in your destination google drive folder'")
 
 st.subheader("Google authentication")
 
@@ -130,10 +153,23 @@ except Exception as e:
 
 st.subheader('Google Drive Sharing Links Tool')
 
-folder_url = st.text_input('Enter your Google Drive folder URL:')
-sheet_url = st.text_input('Enter your Google Sheet URL:')
 
-if st.button('Get Subfolder Info'):
+col1, col2 = st.columns(2)
+with col1:
+    sheet_url = st.text_input('Enter your Google Sheet URL:')
+with col2:
+    folder_url = st.text_input('Enter your Google Drive folder URL:')
+
+col1, col2 = st.columns(2)
+with col1:
+    starting_cell = st.text_input('Enter desired top-left cell in output:')
+with col2:
+    input_type = st.selectbox("Input type", ['Subfolders', 'Files'])
+
+if starting_cell == '':
+    starting_cell = 'A1'
+
+if st.button('Generate Share Links') and st.session_state['final_auth'] and sheet_url and folder_url:
     folder_id = extract_id_from_url(folder_url)
     sheet_id = extract_id_from_url(sheet_url)
     
@@ -157,15 +193,13 @@ if st.button('Get Subfolder Info'):
     # Build the Google Drive service
     drive_service = build('drive', 'v3', credentials=creds)
 
-    subfolder_names, subfolder_ids = get_subfolder_names(folder_id, drive_service)
+    subfolder_names, subfolder_ids = get_subfolder_names(folder_id, drive_service, input_type)
 
     data = []
     for name, folder_id in zip(subfolder_names, subfolder_ids):
         link = create_public_link(folder_id, drive_service)
         data.append([name, link])
 
-    update_google_sheet(sheet_id, data, creds)
+    update_google_sheet(sheet_id, data, creds, starting_cell)
 
-    df = pd.DataFrame(data, columns=['Folder Name', 'Shared Link'])
-    st.table(df)
 
