@@ -10,9 +10,15 @@ import re
 import requests
 import time
 
+st.set_page_config(
+    page_title='SmartOffice',
+    page_icon='📝'
+) 
+
 SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
 hide_streamlit_style = """ <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style> """ 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 
 def is_valid_json(file_path):
     try:
@@ -110,7 +116,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Upload a csv with columns PRECISELY titled 'name', 'school', 'location', and 'class'")
     st.write("- Click 'Process Videos' to being intro video renderings and view them in your destination google drive folder'")
 
-st.subheader("Google authentication")
+st.header("Google authentication")
 
 try:
     if st.button("Authenticate Google Account"):
@@ -151,7 +157,7 @@ try:
 except Exception as e:
     print(e)
 
-st.subheader('Google Drive Sharing Links Tool')
+st.header('Google Drive Sharing Links Tool')
 
 
 col1, col2 = st.columns(2)
