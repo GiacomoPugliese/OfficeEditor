@@ -12,13 +12,12 @@ import time
 
 st.set_page_config(
     page_title='SmartOffice',
-    page_icon='📝'
+    page_icon='📃'
 ) 
 
-SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
 hide_streamlit_style = """ <style> #MainMenu {visibility: hidden;} footer {visibility: hidden;} </style> """ 
 st.markdown(hide_streamlit_style, unsafe_allow_html=True)
-
+SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
 
 def is_valid_json(file_path):
     try:
