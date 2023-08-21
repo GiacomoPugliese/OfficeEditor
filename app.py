@@ -11,7 +11,7 @@ import requests
 import time
 
 st.set_page_config(
-    page_title='SmartOffice',
+    page_title='OfficeEditor',
     page_icon='📃'
 ) 
 
@@ -105,15 +105,14 @@ st.title("LI Office Editor")
 st.caption("By Giacomo Pugliese")
 
 with st.expander("Click to view full directions for this site"):
-    st.subheader("IDs and Doortags")
-    st.write("- Select which template you want to make, as well as the google drive folder ids for your photos and intended output destination.")
-    st.write("- If using an intern template, also indicate which program the interns are in")
-    st.write("- Upload a csv with columns PRECISELY titled 'name', 'role' (high school for interns, job description for staff), 'location', and 'class' (you can omit class column if using a staff template)")
-    st.write("- Click 'Process Tags' to being renderings of the chosen template and view them in your destination google drive folder'")
-    st.subheader("Video Intro Generator")
-    st.write("- Enter the intended output google drive folder id, as well as the program name of the students")
-    st.write("- Upload a csv with columns PRECISELY titled 'name', 'school', 'location', and 'class'")
-    st.write("- Click 'Process Videos' to being intro video renderings and view them in your destination google drive folder'")
+    st.subheader("Google Authentication")
+    st.write("- Click 'Authenticate Google Account, and then on the generated link.")
+    st.write("- Follow the steps of Google login until you get to the final page.")
+    st.write("- Click on 'Finalize Authentication' to proceed to rest of website.")
+    st.subheader("Google Drive Sharing Links Tool")
+    st.write("- Enter the intended output Google sheets link, as well as the input Google drive folder link. ")
+    st.write("- Enter the desired top left cell where data will start being written to the output Google sheet, as well as the input type within your input folder.")
+    st.write("- Click 'Generate Share Links' to being link generation and view them in your destination Google drive sheet.")
 
 st.header("Google authentication")
 
