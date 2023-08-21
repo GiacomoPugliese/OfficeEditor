@@ -10,6 +10,8 @@ import re
 import requests
 import time
 import boto3
+from collections import defaultdict
+from googleapiclient.http import MediaFileUpload
 
 st.set_page_config(
     page_title='OfficeEditor',
@@ -240,6 +242,31 @@ if st.button('Generate Share Links') and st.session_state['final_auth'] and shee
 
     update_google_sheet(sheet_id, data, creds, starting_cell)
 
+def read_google_doc(doc_url):
+    # Google Drive service setup
+    CLIENT_SECRET_FILE = 'credentials.json'
+    API_NAME = 'drive'
+    API_VERSION = 'v3'
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    with open(CLIENT_SECRET_FILE, 'r') as f:
+        client_info = json.load(f)['web']
+
+    creds_dict = st.session_state['creds']
+    creds_dict['client_id'] = client_info['client_id']
+    creds_dict['client_secret'] = client_info['client_secret']
+    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+    # Create Credentials from creds_dict
+    creds = Credentials.from_authorized_user_info(creds_dict)
+
+    drive_service = build('drive', 'v3', credentials=creds)
+    doc_id = doc_url.split('/')[-2]
+    request = drive_service.files().export_media(fileId=doc_id, mimeType='text/plain')
+    response = request.execute()
+    return response.decode('utf-8')
+
+
 st.header("Essay Editing Tool")
 
 uploaded_file = st.file_uploader("Upload CSV file", type="csv")
@@ -250,89 +277,94 @@ if uploaded_file is not None and spreadsheet_url and template_doc_link and st.se
     data = pd.read_csv(uploaded_file, na_values='NaN', keep_default_na=False)
     data = data.fillna("")
 
-    st.write("Data loaded successfully!")
-
     SPREADSHEET_ID = spreadsheet_url.split('/')[-2]
     DOCUMENT_ID = template_doc_link.split('/')[-2]
 
     if st.button("Process Data"):
         try:
-            # Google Drive service setup
-            CLIENT_SECRET_FILE = 'credentials.json'
-            API_NAME = 'drive'
-            API_VERSION = 'v3'
-            SCOPES = ['https://www.googleapis.com/auth/drive']
+            with st.spinner("Processing docs (may take a few minutes)..."):
+                # Google Drive service setup
+                CLIENT_SECRET_FILE = 'credentials.json'
+                API_NAME = 'drive'
+                API_VERSION = 'v3'
+                SCOPES = ['https://www.googleapis.com/auth/drive']
 
-            with open(CLIENT_SECRET_FILE, 'r') as f:
-                client_info = json.load(f)['web']
+                with open(CLIENT_SECRET_FILE, 'r') as f:
+                    client_info = json.load(f)['web']
 
-            creds_dict = st.session_state['creds']
-            creds_dict['client_id'] = client_info['client_id']
-            creds_dict['client_secret'] = client_info['client_secret']
-            creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+                creds_dict = st.session_state['creds']
+                creds_dict['client_id'] = client_info['client_id']
+                creds_dict['client_secret'] = client_info['client_secret']
+                creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
 
-            # Create Credentials from creds_dict
-            creds = Credentials.from_authorized_user_info(creds_dict)
+                # Create Credentials from creds_dict
+                creds = Credentials.from_authorized_user_info(creds_dict)
 
-            drive_service = build('drive', 'v3', credentials=creds)
-            docs_service = build('docs', 'v1', credentials=creds)
-            sheets_service = build('sheets', 'v4', credentials=creds)
+                drive_service = build('drive', 'v3', credentials=creds)
+                docs_service = build('docs', 'v1', credentials=creds)
+                sheets_service = build('sheets', 'v4', credentials=creds)
 
-            for index, row in data.iterrows():
-                doc_title = f"{row['First Name']} {row['Last Name']}"
+                for index, row in data.iterrows():
+                    doc_title = f"{row['First Name']} {row['Last Name']}"
 
-                copy_request = {"name": doc_title}
-                try:
-                    copied_doc = drive_service.files().copy(fileId=DOCUMENT_ID, body=copy_request).execute()
-                    copy_id = copied_doc["id"]
-                except HttpError as error:
-                    st.error(f"An error occurred while copying the document: {error}")
-                    continue
+                    copy_request = {"name": doc_title}
+                    try:
+                        copied_doc = drive_service.files().copy(fileId=DOCUMENT_ID, body=copy_request).execute()
+                        copy_id = copied_doc["id"]
+                    except HttpError as error:
+                        st.error(f"An error occurred while copying the document: {error}")
+                        continue
+                    
+                    essay_link = row['Please provide Google Doc Link to Essay']
+                    if not essay_link:
+                        continue
+                    essay_content = read_google_doc(essay_link)
 
-                find_and_replace_requests = [
-                    {"replaceAllText": {"containsText": {"text": "Student-Name-Filler", "matchCase": True}, "replaceText": doc_title}},
-                    {"replaceAllText": {"containsText": {"text": "Student-Email-Filler", "matchCase": True}, "replaceText": row['Student Email']}},
-                    {"replaceAllText": {"containsText": {"text": "Student-Cell-Filler", "matchCase": True}, "replaceText": row['Student Cell']}},
-                    {"replaceAllText": {"containsText": {"text": "High-School-Name-Filler", "matchCase": True}, "replaceText": row['High School Name']}},
-                    {"replaceAllText": {"containsText": {"text": "University-Filler", "matchCase": True}, "replaceText": row['List of colleges that will be receiving this essay or application information are:']}},
-                    {"replaceAllText": {"containsText": {"text": "Application-Material-Filler", "matchCase": True}, "replaceText": row['Supplemental Essays Prompt']}},
-                    {"replaceAllText": {"containsText": {"text": "Application-Type-Filler", "matchCase": True}, "replaceText": row['The writing being edited is for']}},
-                    {"replaceAllText": {"containsText": {"text": "Review-Round-Filler", "matchCase": True}, "replaceText": row['How many times have you turned in this essay or application information in for review by University Connection?']}}
-                ]
+                    find_and_replace_requests = [
+                        {"replaceAllText": {"containsText": {"text": "Student-Name-Filler", "matchCase": True}, "replaceText": doc_title}},
+                        {"replaceAllText": {"containsText": {"text": "Student-Email-Filler", "matchCase": True}, "replaceText": row['Student Email']}},
+                        {"replaceAllText": {"containsText": {"text": "Student-Cell-Filler", "matchCase": True}, "replaceText": row['Student Cell']}},
+                        {"replaceAllText": {"containsText": {"text": "High-School-Name-Filler", "matchCase": True}, "replaceText": row['High School Name']}},
+                        {"replaceAllText": {"containsText": {"text": "University-Filler", "matchCase": True}, "replaceText": row['List of colleges that will be receiving this essay or application information are:']}},
+                        {"replaceAllText": {"containsText": {"text": "Application-Material-Filler", "matchCase": True}, "replaceText": row['Supplemental Essays Prompt']}},
+                        {"replaceAllText": {"containsText": {"text": "Application-Type-Filler", "matchCase": True}, "replaceText": row['The writing being edited is for']}},
+                        {"replaceAllText": {"containsText": {"text": "Review-Round-Filler", "matchCase": True}, "replaceText": row['How many times have you turned in this essay or application information in for review by University Connection?']}},
+                        {"replaceAllText": {"containsText": {"text": "Essay", "matchCase": True}, "replaceText": essay_content}},
+                    ]
 
-                try:
-                    response = docs_service.documents().batchUpdate(
-                        documentId=copy_id,
-                        body={"requests": find_and_replace_requests}
+                    try:
+                        response = docs_service.documents().batchUpdate(
+                            documentId=copy_id,
+                            body={"requests": find_and_replace_requests}
+                        ).execute()
+                    except HttpError as error:
+                        st.error(f"An error occurred while replacing text: {error}")
+
+                    # Make the copied document publicly editable
+                    drive_service.permissions().create(
+                        fileId=copy_id,
+                        body={"role": "writer", "type": "anyone"},
                     ).execute()
-                except HttpError as error:
-                    st.error(f"An error occurred while replacing text: {error}")
 
-                # Make the copied document publicly editable
-                drive_service.permissions().create(
-                    fileId=copy_id,
-                    body={"role": "writer", "type": "anyone"},
-                ).execute()
+                    # Get the shareable link
+                    file = drive_service.files().get(fileId=copy_id, fields='webViewLink').execute()
+                    share_link = file['webViewLink']
 
-                # Get the shareable link
-                file = drive_service.files().get(fileId=copy_id, fields='webViewLink').execute()
-                share_link = file['webViewLink']
+                    update_request = {
+                        "values": [[doc_title, share_link]]
+                    }
 
-                update_request = {
-                    "values": [[doc_title, share_link]]
-                }
+                    try:
+                        response = sheets_service.spreadsheets().values().append(
+                            spreadsheetId=SPREADSHEET_ID,
+                            range="A:B",
+                            valueInputOption="RAW",
+                            body=update_request,
+                        ).execute()
+                    except HttpError as error:
+                        st.error(f"An error occurred while updating the spreadsheet: {error}")
 
-                try:
-                    response = sheets_service.spreadsheets().values().append(
-                        spreadsheetId=SPREADSHEET_ID,
-                        range="A:B",
-                        valueInputOption="RAW",
-                        body=update_request,
-                    ).execute()
-                except HttpError as error:
-                    st.error(f"An error occurred while updating the spreadsheet: {error}")
-
-            st.success("Data processed successfully!")
+                st.success("Data processed successfully!")
         except Exception as e:
             st.error(f"An error occurred: {e}")
 
@@ -382,6 +414,23 @@ def process_input(input_csv):
     return output_df
 
 def upload_to_drive(filename, sheet_title):
+    # Google Drive service setup
+    CLIENT_SECRET_FILE = 'credentials.json'
+    API_NAME = 'drive'
+    API_VERSION = 'v3'
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    with open(CLIENT_SECRET_FILE, 'r') as f:
+        client_info = json.load(f)['web']
+
+    creds_dict = st.session_state['creds']
+    creds_dict['client_id'] = client_info['client_id']
+    creds_dict['client_secret'] = client_info['client_secret']
+    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+    # Create Credentials from creds_dict
+    creds = Credentials.from_authorized_user_info(creds_dict)
+
     service_drive = build('drive', 'v3', credentials=creds)
     file_metadata = {
         'name': sheet_title,
