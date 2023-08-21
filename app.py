@@ -9,6 +9,7 @@ import pandas as pd
 import re
 import requests
 import time
+import boto3
 
 st.set_page_config(
     page_title='OfficeEditor',
@@ -122,7 +123,7 @@ try:
         st.session_state['begin_auth'] = False
         st.session_state['final_auth'] = False
 
-except:
+except Exception as e:
     print(e)
 
 # Title of the app
@@ -142,6 +143,10 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Upload the CSV of the gathered data to be transformed into the University Connection Google Doc Template. Columns should be titled PRECISELY: 'Student Email', 'Student Cell', 'High School Name', 'List of colleges that will be receiving this essay or application information are:', 'Supplemental Essays Prompt', 'The writing being edited is for', and 'How many times have you turned in this essay or application information in for review by University Connection?').")
     st.write("- Enter the Google Doc Link of the University Connetion Template with filler text PRECISELY named 'Student-Name-Filler', 'Student-Email-Filler', 'Student-Cell-Filler', 'High-School-Name-Filler', 'University-Filler', 'Application-Material-Filler', 'Application-Type-Filler', and 'Review-Round-Filler'.")
     st.write("- Enter a Google Sheets link so you will have the output of all the COMPLETED University Connection templates.")
+    st.subheader("IIP Conjoining")
+    st.write("- Upload the CSV of the unsorted IIP team members with columns PRECISELY titled 'Your Full Name (First Name)', 'Your Full Name (Last Name)', 'Your Email Address', 'Your Phone Number', 'Your Skype Name', 'Preffered Pronouns', 'Your Current Grade', 'City', 'State / Province', 'Country', and 'High School Name'.")
+    st.write("- Enter your desired output sheet title.")
+    st.write("- Click 'Generate Sheet' and receive a new Google sheet that is sorted by IIP team number.")
 
 st.header("Google Authentication")
 
@@ -241,7 +246,7 @@ uploaded_file = st.file_uploader("Upload CSV file", type="csv")
 spreadsheet_url = st.text_input("Spreadsheet URL:")
 template_doc_link = st.text_input("Template Google Docs URL:")
 
-if uploaded_file is not None and spreadsheet_url and template_doc_link:
+if uploaded_file is not None and spreadsheet_url and template_doc_link and st.session_state['final_auth']:
     data = pd.read_csv(uploaded_file, na_values='NaN', keep_default_na=False)
     data = data.fillna("")
 
@@ -330,3 +335,74 @@ if uploaded_file is not None and spreadsheet_url and template_doc_link:
             st.success("Data processed successfully!")
         except Exception as e:
             st.error(f"An error occurred: {e}")
+
+def process_input(input_csv):
+    df = pd.read_csv(input_csv)
+    teams = defaultdict(list)
+    for team_number, group in df.groupby("International Internship Program Team Number"):
+        tl_first = group["First Name"].iloc[0]
+        tl_last = group["Last Name"].iloc[0]
+        team_leader_mask = (
+            (group["Your Full Name (First Name)"] == tl_first)
+            & (group["Your Full Name (Last Name)"] == tl_last)
+        )
+        if not any(team_leader_mask):
+            continue
+        team_leader_data = group[team_leader_mask].iloc[0]
+        team = {
+            "Team Number": team_number,
+            "TL First": team_leader_data["Your Full Name (First Name)"],
+            "TL Last": team_leader_data["Your Full Name (Last Name)"],
+            "TL Email": team_leader_data["Your Email Address"],
+            "TL Phone": team_leader_data["Your Phone Number"],
+            "TL Skype": team_leader_data["Your Skype Name"],
+            "TL Pronouns": team_leader_data["Preferred Pronouns"],
+            "TL Grade": team_leader_data["Your Current Grade"],
+            "TL City": team_leader_data["City"],
+            "TL State/Province": team_leader_data["State / Province"],
+            "TL Country": team_leader_data["Country"],
+            "TL High School": team_leader_data["High School Name"],
+        }
+        for idx, row in enumerate(group.iterrows()):
+            index, data = row
+            prefix = f"S{idx+1}"
+            team[f"{prefix} First"] = data["Your Full Name (First Name)"]
+            team[f"{prefix} Last"] = data["Your Full Name (Last Name)"]
+            team[f"{prefix} Email"] = data["Your Email Address"]
+            team[f"{prefix} Phone"] = data["Your Phone Number"]
+            team[f"{prefix} Skype"] = data["Your Skype Name"]
+            team[f"{prefix} Pronouns"] = data["Preferred Pronouns"]
+            team[f"{prefix} Grade"] = data["Your Current Grade"]
+            team[f"{prefix} City"] = data["City"]
+            team[f"{prefix} State/Province"] = data["State / Province"]
+            team[f"{prefix} Country"] = data["Country"]
+            team[f"{prefix} High School"] = data["High School Name"]
+        teams[team_number].append(team)
+    output_df = pd.DataFrame([item for sublist in teams.values() for item in sublist])
+    return output_df
+
+def upload_to_drive(filename, sheet_title):
+    service_drive = build('drive', 'v3', credentials=creds)
+    file_metadata = {
+        'name': sheet_title,
+        'mimeType': 'application/vnd.google-apps.spreadsheet'
+    }
+    media = MediaFileUpload(filename, mimetype='text/csv', resumable=True)
+    file = service_drive.files().create(body=file_metadata, media_body=media, fields='id').execute()
+    spreadsheet_id = file.get('id')
+    return f'https://docs.google.com/spreadsheets/d/{spreadsheet_id}/edit'
+
+st.header("IIP Conjoining")
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+sheet_title = st.text_input('Title for the Google Sheet that will be created:')
+
+if st.button("Generate Sheet") and uploaded_file is not None and sheet_title and st.session_state['final_auth']:
+    df = process_input(uploaded_file)
+
+    output_file = 'output.csv'
+    df.to_csv(output_file, index=False)
+    try:
+        url = upload_to_drive(output_file, sheet_title)
+        st.write(f'Success! Spreadsheet uploaded to Google Drive: {url}')
+    except Exception as e:
+        st.write(f'Error occurred during the upload: {str(e)}')
