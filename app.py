@@ -106,7 +106,7 @@ st.caption("By Giacomo Pugliese")
 
 with st.expander("Click to view full directions for this site"):
     st.subheader("Google Authentication")
-    st.write("- Click 'Authenticate Google Account, and then on the generated link.")
+    st.write("- Click 'Authenticate Google Account', and then on the generated link.")
     st.write("- Follow the steps of Google login until you get to the final page.")
     st.write("- Click on 'Finalize Authentication' to proceed to rest of website.")
     st.subheader("Google Drive Sharing Links Tool")
