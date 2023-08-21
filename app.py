@@ -273,14 +273,14 @@ uploaded_file = st.file_uploader("Upload CSV file", type="csv")
 spreadsheet_url = st.text_input("Spreadsheet URL:")
 template_doc_link = st.text_input("Template Google Docs URL:")
 
-if uploaded_file is not None and spreadsheet_url and template_doc_link and st.session_state['final_auth']:
+if st.button("Process Data") and uploaded_file is not None and spreadsheet_url and template_doc_link and st.session_state['final_auth']:
     data = pd.read_csv(uploaded_file, na_values='NaN', keep_default_na=False)
     data = data.fillna("")
 
     SPREADSHEET_ID = spreadsheet_url.split('/')[-2]
     DOCUMENT_ID = template_doc_link.split('/')[-2]
 
-    if st.button("Process Data"):
+    if True:
         try:
             with st.spinner("Processing docs (may take a few minutes)..."):
                 # Google Drive service setup
