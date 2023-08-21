@@ -143,7 +143,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Enter the Google Doc Link of the University Connetion Template with filler text PRECISELY named 'Student-Name-Filler', 'Student-Email-Filler', 'Student-Cell-Filler', 'High-School-Name-Filler', 'University-Filler', 'Application-Material-Filler', 'Application-Type-Filler', and 'Review-Round-Filler'.")
     st.write("- Enter a Google Sheets link so you will have the output of all the COMPLETED University Connection templates.")
 
-st.header("Google authentication")
+st.header("Google Authentication")
 
 try:
     if st.button("Authenticate Google Account"):
@@ -189,13 +189,13 @@ st.header('Google Drive Sharing Links Tool')
 
 col1, col2 = st.columns(2)
 with col1:
-    sheet_url = st.text_input('Enter your Google Sheet URL:')
+    sheet_url = st.text_input('Google Sheet URL:')
 with col2:
-    folder_url = st.text_input('Enter your Google Drive folder URL:')
+    folder_url = st.text_input('Google Drive folder URL:')
 
 col1, col2 = st.columns(2)
 with col1:
-    starting_cell = st.text_input('Enter desired top-left cell in output:')
+    starting_cell = st.text_input('Desired top-left cell in output:')
 with col2:
     input_type = st.selectbox("Input type", ['Subfolders', 'Files'])
 
@@ -238,8 +238,8 @@ if st.button('Generate Share Links') and st.session_state['final_auth'] and shee
 st.header("Essay Editing Tool")
 
 uploaded_file = st.file_uploader("Upload CSV file", type="csv")
-spreadsheet_url = st.text_input("Enter spreadsheet URL:")
-template_doc_link = st.text_input("Enter template Google Docs link:")
+spreadsheet_url = st.text_input("Spreadsheet URL:")
+template_doc_link = st.text_input("Template Google Docs URL:")
 
 if uploaded_file is not None and spreadsheet_url and template_doc_link:
     data = pd.read_csv(uploaded_file, na_values='NaN', keep_default_na=False)
