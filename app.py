@@ -12,6 +12,7 @@ import time
 import boto3
 from collections import defaultdict
 from googleapiclient.http import MediaFileUpload
+import openai
 
 st.set_page_config(
     page_title='OfficeEditor',
@@ -455,3 +456,113 @@ if st.button("Generate Sheet") and uploaded_file is not None and sheet_title and
         st.write(f'Success! Spreadsheet uploaded to Google Drive: {url}')
     except Exception as e:
         st.write(f'Error occurred during the upload: {str(e)}')
+
+import ast
+
+def process_response(response):
+    # Process the response from the GPT-4 API
+    content = response['choices'][0]['message']['content']
+    matched_pairs = ast.literal_eval(content)
+    return matched_pairs
+
+
+def call_gpt4_api(data):
+    # Set up OpenAI API key and model
+    openai.api_key = st.secrets['OPENAI_KEY']
+    model = "gpt-4"
+
+    # Prepare the input data for GPT-4 API
+    bios = data['bio'].tolist()
+    names = data['name'].tolist()
+
+    # Create a system message to instruct the model
+    messages = [{"role": "system", "content": "You are providing output in a very structured and specific way to help me match people into pairs of roommates based on the similarity of their bios. The only output you should create should be in the form of a 2d array that looks like: [[person1, person2], [person3, person4]] with absolutely no extra text."}]
+
+    # Create a single user message with all the bios
+    bio_text = " ".join([f"{names[i]}: {bio}" for i, bio in enumerate(bios)])
+    messages.append({"role": "user", "content": f"You are providing output in a very structured and specific way to help me match people into pairs of roommates based on the similarity of their bios. The only output you should create should be in the form of a 2d array that looks like: [[person1, person2], [person3, person4]] with absolutely no extra text. Match the following people into pairs based on their bios: {bio_text}"})
+
+    # Call the GPT-4 API
+    try:
+        response = openai.ChatCompletion.create(
+            model=model,
+            messages=messages
+        )
+        print(response)
+        matched_pairs = process_response(response)
+        return matched_pairs
+    except Exception as e:
+        print("Error calling GPT-4 API:", e)
+        return []
+
+st.header("Roommate Matcher")
+
+input_sheet = st.file_uploader("Upload input CSV file", type="csv")
+
+if st.button("Match Roommates") and input_sheet and st.session_state['final_auth']:
+    with st.spinner("Matching Roommates (may take a few minutes)..."):
+        # Google Drive service setup
+        CLIENT_SECRET_FILE = 'credentials.json'
+        API_NAME = 'drive'
+        API_VERSION = 'v3'
+        SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/spreadsheets']
+
+        with open(CLIENT_SECRET_FILE, 'r') as f:
+            client_info = json.load(f)['web']
+
+        creds_dict = st.session_state['creds']
+        creds_dict['client_id'] = client_info['client_id']
+        creds_dict['client_secret'] = client_info['client_secret']
+        creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+        # Create Credentials from creds_dict
+        creds = Credentials.from_authorized_user_info(creds_dict)
+
+        service_drive = build('drive', 'v3', credentials=creds)
+        
+        # Load CSV data
+        data = pd.read_csv(input_sheet)
+        
+        # Send data to GPT-4 model (code to be added)
+        # This code should call the GPT-4 API and get the matches as a response
+        matches = call_gpt4_api(data)
+        
+        # Create a Google Sheet with the matched roommates
+        service_sheets = build('sheets', 'v4', credentials=creds)
+        spreadsheet_body = {
+            'properties': {
+                'title': 'Sorted Roommates'
+            }
+        }
+        spreadsheet = service_sheets.spreadsheets().create(body=spreadsheet_body).execute()
+        spreadsheet_id = spreadsheet['spreadsheetId']
+        worksheet_id = spreadsheet['sheets'][0]['properties']['sheetId']
+
+        
+        # Format the Google Sheet
+        requests = [
+            {
+                'appendCells': {
+                    'sheetId': worksheet_id,
+                    'rows': [
+                        {
+                            'values': [{'userEnteredValue': {'stringValue': 'Roommate 1'}},
+                                    {'userEnteredValue': {'stringValue': 'Roommate 2'}}]
+                        },
+                        *[
+                            {
+                                'values': [{'userEnteredValue': {'stringValue': match[0]}},
+                                        {'userEnteredValue': {'stringValue': match[1]}}]
+                            } for match in matches
+                        ]
+                    ],
+                    'fields': 'userEnteredValue'
+                }
+            }
+        ]
+        service_sheets.spreadsheets().batchUpdate(
+            spreadsheetId=spreadsheet_id,
+            body={'requests': requests}
+        ).execute()
+
+    st.write(f"Google Sheet created! [View here](https://docs.google.com/spreadsheets/d/{spreadsheet_id})")
