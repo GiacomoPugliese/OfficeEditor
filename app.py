@@ -150,6 +150,9 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Upload the CSV of the unsorted IIP team members with columns PRECISELY titled 'Your Full Name (First Name)', 'Your Full Name (Last Name)', 'Your Email Address', 'Your Phone Number', 'Your Skype Name', 'Preffered Pronouns', 'Your Current Grade', 'City', 'State / Province', 'Country', and 'High School Name'.")
     st.write("- Enter your desired output sheet title.")
     st.write("- Click 'Generate Sheet' and receive a new Google sheet that is sorted by IIP team number.")
+    st.subheader("Roommate Matcher")
+    st.write("- Upload the CSV of two columns PRECISELY named 'name' and 'bio'. Please only upload one gender at a time.")
+    st.write("- Click 'Match Roommates' and receive a new Google sheet URL that makes roommate selections automatically.")
 
 st.header("Google Authentication")
 
