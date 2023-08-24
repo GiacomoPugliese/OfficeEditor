@@ -37,29 +37,47 @@ def get_credentials():
     return creds
 
 def get_subfolder_names(folder_id, service, input_type):
-    subfolder_names = []
-    subfolder_ids = []
+    subfolder_info = []  # Use this to store (name, id) pairs together
     query = ''
     if input_type == 'Files':
         query = f"'{folder_id}' in parents and mimeType!='application/vnd.google-apps.folder'"
     else:
         query = f"'{folder_id}' in parents and mimeType='application/vnd.google-apps.folder'"
 
-    try:
-        response = service.files().list(
-            q=query,
-            spaces='drive',
-            fields='files(id, name)',
-            pageToken=None
-        ).execute()
+    page_token = None
+    while True:
+        try:
+            response = service.files().list(
+                q=query,
+                spaces='drive',
+                fields='files(id, name)',
+                pageToken=page_token,
+                orderBy='name',     # Sorting alphabetically by name
+                pageSize=1000  
+            ).execute()
 
-        subfolder_names = [file['name'] for file in response.get('files', [])]
-        subfolder_ids = [file['id'] for file in response.get('files', [])]
+            # Extend the list with pairs (name, id)
+            subfolder_info.extend([(file['name'], file['id']) for file in response.get('files', [])])
 
-    except HttpError as error:
-        print(f'An error occurred: {error}')
+            # Check for next page
+            page_token = response.get('nextPageToken', None)
+            if page_token is None:
+                break
 
+        except HttpError as error:
+            print(f'An error occurred: {error}')
+            break
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduplicated_info = [(name, id_) for name, id_ in subfolder_info if name not in seen and not seen.add(name)]
+    
+    # Split the deduplicated pairs back into two lists
+    subfolder_names, subfolder_ids = zip(*deduplicated_info) if deduplicated_info else ([], [])
+
+    print(len(subfolder_names))
     return subfolder_names, subfolder_ids
+
 
 def create_public_link(file_id, service):
     try:
@@ -214,37 +232,40 @@ if starting_cell == '':
     starting_cell = 'A1'
 
 if st.button('Generate Share Links') and st.session_state['final_auth'] and sheet_url and folder_url:
-    folder_id = extract_id_from_url(folder_url)
-    sheet_id = extract_id_from_url(sheet_url)
-    
-    # Google Drive service setup
-    CLIENT_SECRET_FILE = 'credentials.json'
-    API_NAME = 'drive'
-    API_VERSION = 'v3'
-    SCOPES = ['https://www.googleapis.com/auth/drive']
+    with st.spinner("Generaing links..."):
+        folder_id = extract_id_from_url(folder_url)
+        sheet_id = extract_id_from_url(sheet_url)
+        
+        # Google Drive service setup
+        CLIENT_SECRET_FILE = 'credentials.json'
+        API_NAME = 'drive'
+        API_VERSION = 'v3'
+        SCOPES = ['https://www.googleapis.com/auth/drive']
 
-    with open(CLIENT_SECRET_FILE, 'r') as f:
-        client_info = json.load(f)['web']
+        with open(CLIENT_SECRET_FILE, 'r') as f:
+            client_info = json.load(f)['web']
 
-    creds_dict = st.session_state['creds']
-    creds_dict['client_id'] = client_info['client_id']
-    creds_dict['client_secret'] = client_info['client_secret']
-    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+        creds_dict = st.session_state['creds']
+        creds_dict['client_id'] = client_info['client_id']
+        creds_dict['client_secret'] = client_info['client_secret']
+        creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
 
-    # Create Credentials from creds_dict
-    creds = Credentials.from_authorized_user_info(creds_dict)
+        # Create Credentials from creds_dict
+        creds = Credentials.from_authorized_user_info(creds_dict)
 
-    # Build the Google Drive service
-    drive_service = build('drive', 'v3', credentials=creds)
+        # Build the Google Drive service
+        drive_service = build('drive', 'v3', credentials=creds)
 
-    subfolder_names, subfolder_ids = get_subfolder_names(folder_id, drive_service, input_type)
+    with st.spinner("Retrieving links..."):
+        subfolder_names, subfolder_ids = get_subfolder_names(folder_id, drive_service, input_type)
 
-    data = []
-    for name, folder_id in zip(subfolder_names, subfolder_ids):
-        link = create_public_link(folder_id, drive_service)
-        data.append([name, link])
+        data = []
+        for name, folder_id in zip(subfolder_names, subfolder_ids):
+            link = create_public_link(folder_id, drive_service)
+            data.append([name, link])
 
-    update_google_sheet(sheet_id, data, creds, starting_cell)
+    with st.spinner("Updating Google Sheet..."):
+        update_google_sheet(sheet_id, data, creds, starting_cell)
 
 def read_google_doc(doc_url):
     # Google Drive service setup
