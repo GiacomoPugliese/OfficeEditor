@@ -157,7 +157,7 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Follow the steps of Google login until you get to the final page.")
     st.write("- Click on 'Finalize Authentication' to proceed to rest of website.")
     st.subheader("Google Drive Sharing Links Tool")
-    st.write("- Enter the intended output Google sheets link, as well as the input Google drive folder link."), 
+    st.write("- Enter the intended output Google sheets link, as well as the input Google drive folder link.")
     st.write("- Enter the desired top left cell where data will start being written to the output Google sheet, as well as the input type within your input folder.")
     st.write("- Click 'Generate Share Links' to being link generation and view them in your destination Google drive sheet.")
     st.subheader("Essay Editing Tool")
@@ -435,7 +435,8 @@ if st.button("Process Data") and uploaded_file is not None and spreadsheet_url a
 
                 st.success("Data processed successfully!")
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            pass
+            # st.error(f"An error occurred: {e}")
 
 def process_input(input_csv):
     df = pd.read_csv(input_csv)
