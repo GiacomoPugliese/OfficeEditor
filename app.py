@@ -157,12 +157,12 @@ with st.expander("Click to view full directions for this site"):
     st.write("- Follow the steps of Google login until you get to the final page.")
     st.write("- Click on 'Finalize Authentication' to proceed to rest of website.")
     st.subheader("Google Drive Sharing Links Tool")
-    st.write("- Enter the intended output Google sheets link, as well as the input Google drive folder link.")
+    st.write("- Enter the intended output Google sheets link, as well as the input Google drive folder link."), 
     st.write("- Enter the desired top left cell where data will start being written to the output Google sheet, as well as the input type within your input folder.")
     st.write("- Click 'Generate Share Links' to being link generation and view them in your destination Google drive sheet.")
     st.subheader("Essay Editing Tool")
-    st.write("- Upload the CSV of the gathered data to be transformed into the University Connection Google Doc Template. Columns should be titled PRECISELY: 'Student Email', 'Student Cell', 'High School Name', 'List of colleges that will be receiving this essay or application information are:', 'Supplemental Essays Prompt', 'The writing being edited is for', and 'How many times have you turned in this essay or application information in for review by University Connection?').")
-    st.write("- Enter the Google Doc Link of the University Connetion Template with filler text PRECISELY named 'Student-Name-Filler', 'Student-Email-Filler', 'Student-Cell-Filler', 'High-School-Name-Filler', 'University-Filler', 'Application-Material-Filler', 'Application-Type-Filler', and 'Review-Round-Filler'.")
+    st.write("- Upload the CSV of the gathered data to be transformed into the University Connection Google Doc Template. Columns should be titled PRECISELY: 'First Name', 'Last Name', 'Student Email', 'Student Cell', 'High School Name', 'List of colleges that will be receiving this essay or application information are:', 'The writing being edited is for', 'The 2023 Common App prompt my essay address is', 'The 2023 Coalition Application prompt my essay address is', 'Supplemental Essays Prompt', 'Essay Prompt', 'Word Limit (Min words)', 'Word Limit (Max words)', 'Please provide Google Doc Link to Essay', and 'How many times have you turned in this essay or application information in for review by University Connection?').")
+    st.write("- Enter the Google Doc Link of the University Connetion Template with filler text PRECISELY named 'Student-Name-Filler', 'Student-Email-Filler', 'Student-Cell-Filler', 'High-School-Name-Filler', 'University-Filler', 'Application-Type-Filler', 'Essay-Prompt-Filler', Word-Limit-Filler', 'Current-Word-Count-Filler', and 'Review-Round-Filler'.")
     st.write("- Enter a Google Sheets link so you will have the output of all the COMPLETED University Connection templates.")
     st.subheader("IIP Conjoining")
     st.write("- Upload the CSV of the unsorted IIP team members with columns PRECISELY titled 'Your Full Name (First Name)', 'Your Full Name (Last Name)', 'Your Email Address', 'Your Phone Number', 'Your Skype Name', 'Preffered Pronouns', 'Your Current Grade', 'City', 'State / Province', 'Country', and 'High School Name'.")
@@ -298,6 +298,28 @@ uploaded_file = st.file_uploader("Upload CSV file", type="csv")
 spreadsheet_url = st.text_input("Spreadsheet URL:")
 template_doc_link = st.text_input("Template Google Docs URL:")
 
+# def remove_prompt_with_gpt4(essay_content):
+#     # Set up OpenAI API key and model
+#     openai.api_key = st.secrets['OPENAI_KEY']  # Replace with your actual API key
+#     model = "gpt4"
+
+#     # Create a system message to instruct the model
+#     messages = [{"role": "system", "content": "You are tasked with removing the essay prompt from the student's essay. Return only the text of the essay, without any of the prompt."}]
+
+#     # Add the essay and prompt to the messages
+#     messages.append({"role": "user", "content": f"Here's the essay with the prompt: {essay_content}. Remove the prompt if the student included it and return only the essay text."})
+
+#     # Call the GPT-4 API
+#     try:
+#         response = openai.ChatCompletion.create(
+#             model=model,
+#             messages=messages
+#         )
+#         return response.choices[0].message['content'].strip()
+#     except Exception as e:
+#         print(f"Error calling GPT-4 API: {e}")
+#         return essay_content  # return the original essay content if the API call fails
+    
 if st.button("Process Data") and uploaded_file is not None and spreadsheet_url and template_doc_link and st.session_state['final_auth']:
     data = pd.read_csv(uploaded_file, na_values='NaN', keep_default_na=False)
     data = data.fillna("")
@@ -344,17 +366,39 @@ if st.button("Process Data") and uploaded_file is not None and spreadsheet_url a
                     if not essay_link:
                         continue
                     essay_content = read_google_doc(essay_link)
+                    word_count = len(essay_content.split())
+
+
+                    if row['Word Limit (Min words)'] and row['Word Limit (Max words)']:
+                        word_limit = row['Word Limit (Min words)'] + ' - ' + row['Word Limit (Max words)']
+                    elif row['Word Limit (Min words)']:
+                        word_limit = row['Word Limit (Min words)']
+                    elif row['Word Limit (Max words)']:
+                        word_limit = row['Word Limit (Max words)']
+                    else:
+                        word_limit = ''
+
+                    prompt_keys = [
+                        'The 2023 Common App prompt my essay address is',
+                        'The 2023 Coalition Application prompt my essay address is',
+                        'Supplemental Essays Prompt',
+                        'Essay Prompt'
+                    ]
+
+                    prompt = next((row[key] for key in prompt_keys if row.get(key)), '')
 
                     find_and_replace_requests = [
                         {"replaceAllText": {"containsText": {"text": "Student-Name-Filler", "matchCase": True}, "replaceText": doc_title}},
-                        {"replaceAllText": {"containsText": {"text": "Student-Email-Filler", "matchCase": True}, "replaceText": row['Student Email']}},
-                        {"replaceAllText": {"containsText": {"text": "Student-Cell-Filler", "matchCase": True}, "replaceText": row['Student Cell']}},
+                        {"replaceAllText": {"containsText": {"text": "Student-Email-Filler", "matchCase": True}, "replaceText": str(row['Student Email'])}},
+                        {"replaceAllText": {"containsText": {"text": "Student-Cell-Filler", "matchCase": True}, "replaceText": str(row['Student Cell'])}},
                         {"replaceAllText": {"containsText": {"text": "High-School-Name-Filler", "matchCase": True}, "replaceText": row['High School Name']}},
                         {"replaceAllText": {"containsText": {"text": "University-Filler", "matchCase": True}, "replaceText": row['List of colleges that will be receiving this essay or application information are:']}},
-                        {"replaceAllText": {"containsText": {"text": "Application-Material-Filler", "matchCase": True}, "replaceText": row['Supplemental Essays Prompt']}},
                         {"replaceAllText": {"containsText": {"text": "Application-Type-Filler", "matchCase": True}, "replaceText": row['The writing being edited is for']}},
+                        {"replaceAllText": {"containsText": {"text": "Essay-Prompt-Filler", "matchCase": True}, "replaceText": prompt}},
+                        {"replaceAllText": {"containsText": {"text": "Word-Limit-Filler", "matchCase": True}, "replaceText": word_limit}},
+                        {"replaceAllText": {"containsText": {"text": "Current-Word-Count-Filler", "matchCase": True}, "replaceText": str(word_count)}},
                         {"replaceAllText": {"containsText": {"text": "Review-Round-Filler", "matchCase": True}, "replaceText": row['How many times have you turned in this essay or application information in for review by University Connection?']}},
-                        {"replaceAllText": {"containsText": {"text": "Essay", "matchCase": True}, "replaceText": essay_content}},
+                        {"replaceAllText": {"containsText": {"text": "Essay-Filler", "matchCase": True}, "replaceText": essay_content}},
                     ]
 
                     try:
