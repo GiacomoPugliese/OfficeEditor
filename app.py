@@ -435,7 +435,8 @@ if st.button("Process Data") and uploaded_file is not None and spreadsheet_url a
 
                 st.success("Data processed successfully!")
         except Exception as e:
-            st.error(f"An error occurred: {e}")
+            pass
+            # st.error(f"An error occurred: {e}")
 
 def process_input(input_csv):
     df = pd.read_csv(input_csv)
