@@ -13,6 +13,10 @@ import boto3
 from collections import defaultdict
 from googleapiclient.http import MediaFileUpload
 import openai
+from googleapiclient.http import MediaIoBaseDownload
+import pdfkit
+from PyPDF2 import PdfReader, PdfWriter
+import io
 
 st.set_page_config(
     page_title='OfficeEditor',
@@ -110,6 +114,9 @@ def extract_id_from_url(url):
     match = re.search(r'(?<=spreadsheets/d/)[a-zA-Z0-9_-]+', url)
     if match:
         return match.group(0)
+    match = re.search(r'(?<=document/d/)[a-zA-Z0-9_-]+', url)
+    if match:
+        return match.group(0)
     return None
 
 def reset_s3():
@@ -171,6 +178,10 @@ with st.expander("Click to view full directions for this site"):
     st.subheader("Roommate Matcher")
     st.write("- Upload the CSV of two columns PRECISELY named 'name' and 'bio'. Please upload only one gender at a time.")
     st.write("- Click 'Match Roommates' and receive a new Google sheet URL that makes roommate selections automatically.")
+    st.subheader("Box Labels Tool")
+    st.write("- Upload the link to a Google Docs template that is a 3 column by 2 row grid of tables. Each table should have a one columned row PRECISELY titled '{{Box Type}} {{#}} n' for the nth table in the grid. The table should then have 6 rows of 2 columns, with the left column PRECISELY titled '{{Item}} ni' for the nth table and the ith row (i starts at 0 but n starts at 1), and the right column PRECISELY titled '{{Count}} ni'.")
+    st.write("- Upload the link to Google Sheets data with columns PRECISELY labeled 'Box #', 'Item', and 'Count'.")
+    st.write("- Click 'Generate Labels' and receive a PDF containing all of the box labels.")
 
 st.header("Google Authentication")
 
@@ -635,3 +646,236 @@ if st.button("Match Roommates") and input_sheet and st.session_state['final_auth
         ).execute()
 
     st.write(f"Google Sheet created! [View here](https://docs.google.com/spreadsheets/d/{spreadsheet_id})")
+
+def convert_docs_to_pdf(drive_service, doc_id, file_name="temp.pdf"):
+    request = drive_service.files().export_media(fileId=doc_id, mimeType='application/pdf')
+    with open(file_name, 'wb') as f:
+        downloader = MediaIoBaseDownload(f, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+    return file_name
+
+def create_copy_of_template(template_doc_id, drive_service):
+    copy_request = {"name": "Box Labels Copy"}
+    copied_doc = drive_service.files().copy(fileId=template_doc_id, body=copy_request).execute()
+    return copied_doc["id"]
+
+def get_template_content(template_doc_id, docs_service):
+
+    doc = docs_service.documents().get(documentId=template_doc_id).execute()
+    content = doc['body']['content']
+    text_content = ""
+    for item in content:
+        if 'paragraph' in item:
+            elements = item['paragraph']['elements']
+            for elem in elements:
+                if 'textRun' in elem:
+                    text_content += elem['textRun']['content']
+    return text_content
+
+
+
+def fill_table_in_doc(docs_service, doc_id, box_type, box_num, items, table_counter):
+    # Prepare the request for replacements in the document
+    requests = [
+        {
+            "replaceAllText": {
+                "containsText": {
+                    "text": "{{Box Type}} {{#}} " + str(table_counter + 1),
+                    "matchCase": True
+                },
+                "replaceText": f"{box_type} Box #{box_num}"
+            }
+        }
+    ]
+    
+    # Iterate over 5 possible item slots and fill them in if available
+    for i in range(6):
+        if i < len(items):
+            item, count = items[i]
+            requests.append({
+                "replaceAllText": {
+                    "containsText": {
+                        "text": "{{Item}} " + str(table_counter + 1) + str(i),
+                        "matchCase": True
+                    },
+                    "replaceText": item
+                }
+            })
+            requests.append({
+                "replaceAllText": {
+                    "containsText": {
+                        "text": "{{Count}} " + str(table_counter + 1) + str(i),
+                        "matchCase": True
+                    },
+                    "replaceText": str(count)
+                }
+            })
+        else:
+            requests.append({
+                "replaceAllText": {
+                    "containsText": {
+                        "text": "{{Item}} " + str(table_counter + 1) + str(i),
+                        "matchCase": True
+                    },
+                    "replaceText": ""
+                }
+            })
+            requests.append({
+                "replaceAllText": {
+                    "containsText": {
+                        "text": "{{Count}} " + str(table_counter + 1) + str(i),
+                        "matchCase": True
+                    },
+                    "replaceText": ""
+                }
+            })
+    
+    # Execute the replacements
+    docs_service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+
+def export_docs_to_combined_pdf(drive_service, doc_ids):
+    # Initialize a PDF writer object
+    pdf_writer = PdfWriter()
+
+    for doc_id in doc_ids:
+        # Export the Google Doc as a PDF
+        response = drive_service.files().export(fileId=doc_id, mimeType='application/pdf').execute()
+
+        # Convert the response to a file-like object
+        response_io = io.BytesIO(response)
+
+        # Read the PDF content using PdfFileReader
+        pdf_reader = PdfReader(response_io)
+
+        # Add each page of the current PDF to the writer object
+        for page_num in range(len(pdf_reader.pages)):
+            page = pdf_reader.pages[page_num]
+            pdf_writer.add_page(page)
+
+    # Convert the combined PDF to bytes
+    combined_pdf_io = io.BytesIO()
+    pdf_writer.write(combined_pdf_io)
+    combined_pdf_data = combined_pdf_io.getvalue()
+
+    return combined_pdf_data
+
+def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_service, docs_service):
+    # Fetch data from Google Sheets
+    sheet_data = sheets_service.spreadsheets().values().get(spreadsheetId=sheet_id, range="A:Z").execute()
+    rows = sheet_data.get('values', [])
+    
+    # Fetch the headers from Google Sheets to determine the position of columns
+    headers = sheet_data.get('values', [])[0]  # Assuming the first row contains headers
+
+    # Get the index of desired columns based on their names
+    box_num_idx = headers.index("Box #")
+    item_idx = headers.index("Item")
+    count_idx = headers.index("Count")
+
+    # Group items based on 'Box #'
+    grouped_items = defaultdict(list)
+    for row in rows[1:]:  # Skip the header row
+        box_num = row[box_num_idx]
+        item = row[item_idx]
+        count = row[count_idx]
+        grouped_items[box_num].append((item, count))
+
+    # List to keep track of doc IDs to be converted to a combined PDF
+    doc_ids_to_export = []
+
+    # Create a new doc by copying the provided template
+    current_doc_id = create_copy_of_template(template_doc_id, drive_service)
+    
+    table_counter = 0
+    for box_num, items in grouped_items.items():
+        if table_counter == 7:
+            # Append the current doc to the list
+            doc_ids_to_export.append(current_doc_id)
+
+            # Create a new doc by copying the provided template for further processing
+            current_doc_id = create_copy_of_template(template_doc_id, drive_service)
+
+            table_counter = 0
+
+        # Handle the case where the box has more than 5 items
+        while len(items) > 6:
+            fill_table_in_doc(docs_service, current_doc_id, box_type, box_num, items[:6], table_counter)
+            items = items[6:]
+            table_counter += 1
+            if table_counter == 7:
+                # Append the current doc to the list
+                doc_ids_to_export.append(current_doc_id)
+
+                # Create a new doc by copying the provided template for further processing
+                current_doc_id = create_copy_of_template(template_doc_id, drive_service)
+
+                table_counter = 0
+
+        # Fill the items in the document
+        fill_table_in_doc(docs_service, current_doc_id, box_type, box_num, items, table_counter)
+        table_counter += 1
+
+    # Append the last doc to the list
+    doc_ids_to_export.append(current_doc_id)
+
+    # After processing all boxes, convert the list of Google Docs into a single combined PDF
+    pdf_file_data = export_docs_to_combined_pdf(drive_service, doc_ids_to_export)
+
+    # Save the combined PDF data to a file
+    with open("final_labels.pdf", "wb") as f:
+        f.write(pdf_file_data)
+
+    # Delete all the temporary Google Docs
+    for doc_id in doc_ids_to_export:
+        drive_service.files().delete(fileId=doc_id).execute()
+
+    return pdf_file_data
+
+
+# Main Streamlit interface
+st.header("Box Labels Tool")
+
+col1, col2, col3 = st.columns([2, 2, 1])
+with col1:
+    template_document_link2 = st.text_input("Template Google docs URL:")
+with col2:
+    template_spreadsheet_link2 = st.text_input("Template Google sheets URL:")
+with col3:
+    box_type = st.text_input("Box Type:")
+SPREADSHEET_ID = '1oK8gS4LZ1rCe626iUBeVxx5f8f_55vMnngY4YEJdTYw'
+if st.button("Generate Labels") and template_document_link2 and template_spreadsheet_link2 and box_type and st.session_state['final_auth']:
+    # Extract ID from the Google Docs URL
+    DOCUMENT_ID = extract_id_from_url(template_document_link2)
+    SPREADSHEET_ID = extract_id_from_url(template_spreadsheet_link2)
+
+    # Google Drive service setup
+    CLIENT_SECRET_FILE = 'credentials.json'
+    API_NAME = 'drive'
+    API_VERSION = 'v3'
+    SCOPES = ['https://www.googleapis.com/auth/drive']
+
+    with open(CLIENT_SECRET_FILE, 'r') as f:
+        client_info = json.load(f)['web']
+
+    creds_dict = st.session_state['creds']
+    creds_dict['client_id'] = client_info['client_id']
+    creds_dict['client_secret'] = client_info['client_secret']
+    creds_dict['refresh_token'] = creds_dict.get('_refresh_token')
+
+    # Create Credentials from creds_dict
+    creds = Credentials.from_authorized_user_info(creds_dict)
+
+    # Build the Google Drive service
+    drive_service = build('drive', 'v3', credentials=creds)
+    docs_service = build('docs', 'v1', credentials=creds)
+    sheets_service = build('sheets', 'v4', credentials=creds)
+
+    with st.spinner("Processing Labels... (may take a few minutes)"):
+        # Call the processing function
+        pdf_file_data = process_labels(SPREADSHEET_ID, sheets_service, box_type, DOCUMENT_ID, drive_service, docs_service)
+
+    st.download_button("Download Labels PDF", pdf_file_data, file_name="final_labels.pdf", mime="application/pdf")
+
+    st.success("Labels processed successfully!")
