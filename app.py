@@ -732,8 +732,29 @@ def fill_table_in_doc(docs_service, doc_id, box_type, box_num, items, table_coun
                 }
             })
     
-    # Execute the replacements
-    docs_service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+
+    max_attempts = 5
+    attempts = 0
+
+    while attempts < max_attempts:
+        try:
+            # Try executing the code
+            docs_service.documents().batchUpdate(documentId=doc_id, body={"requests": requests}).execute()
+            
+            # If successful, break out of the loop
+            break
+        except Exception as e:
+            # Print the exception
+            print(f"Attempt {attempts + 1} failed with error: {e}")
+            
+            # Increment the attempts counter
+            attempts += 1
+
+            # If we've reached the maximum number of attempts, raise the exception
+            if attempts == max_attempts:
+                print(f"Failed to execute after {max_attempts} attempts.")
+                raise
+
 
 def export_docs_to_combined_pdf(drive_service, doc_ids):
     # Initialize a PDF writer object
@@ -791,6 +812,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
     table_counter = 0
     for box_num, items in grouped_items.items():
         if table_counter == 7:
+            time.sleep(2)
             # Append the current doc to the list
             doc_ids_to_export.append(current_doc_id)
 
@@ -801,6 +823,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
 
         # Handle the case where the box has more than 5 items
         while len(items) > 6:
+            time.sleep(2)
             fill_table_in_doc(docs_service, current_doc_id, box_type, box_num, items[:6], table_counter)
             items = items[6:]
             table_counter += 1
@@ -813,6 +836,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
 
                 table_counter = 0
 
+        time.sleep(2)
         # Fill the items in the document
         fill_table_in_doc(docs_service, current_doc_id, box_type, box_num, items, table_counter)
         table_counter += 1
@@ -824,7 +848,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
     pdf_file_data = export_docs_to_combined_pdf(drive_service, doc_ids_to_export)
 
     # Save the combined PDF data to a file
-    with open("final_labels.pdf", "wb") as f:
+    with open(box_type + '.pdf', "wb") as f:
         f.write(pdf_file_data)
 
     # Delete all the temporary Google Docs
@@ -876,6 +900,6 @@ if st.button("Generate Labels") and template_document_link2 and template_spreads
         # Call the processing function
         pdf_file_data = process_labels(SPREADSHEET_ID, sheets_service, box_type, DOCUMENT_ID, drive_service, docs_service)
 
-    st.download_button("Download Labels PDF", pdf_file_data, file_name="final_labels.pdf", mime="application/pdf")
+    st.download_button("Download Labels PDF", pdf_file_data, file_name=box_type + '.pdf', mime="application/pdf")
 
     st.success("Labels processed successfully!")
