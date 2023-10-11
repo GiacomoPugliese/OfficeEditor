@@ -811,7 +811,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
     
     table_counter = 0
     for box_num, items in grouped_items.items():
-        if table_counter == 7:
+        if table_counter == 6:
             time.sleep(2)
             # Append the current doc to the list
             doc_ids_to_export.append(current_doc_id)
@@ -827,7 +827,7 @@ def process_labels(sheet_id, sheets_service, box_type, template_doc_id, drive_se
             fill_table_in_doc(docs_service, current_doc_id, box_type, box_num, items[:6], table_counter)
             items = items[6:]
             table_counter += 1
-            if table_counter == 7:
+            if table_counter == 6:
                 # Append the current doc to the list
                 doc_ids_to_export.append(current_doc_id)
 
