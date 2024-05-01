@@ -132,16 +132,16 @@ def reset_s3():
         aws_secret_access_key=AWS_SECRET_KEY
     )
 
-    # Delete objects within subdirectories in the bucket 'li-general-tasks'
+    # Delete objects within subdirectories in the bucket 'li-general-task'
     subdirs = ['input_videos/', 'output_videos/', 'images/']
     for subdir in subdirs:
-        objects = s3.list_objects_v2(Bucket='li-general-tasks', Prefix=subdir)
+        objects = s3.list_objects_v2(Bucket='li-general-task', Prefix=subdir)
         for obj in objects.get('Contents', []):
             if obj['Key'] != 'input_videos/outro.mp4':
-                s3.delete_object(Bucket='li-general-tasks', Key=obj['Key'])
+                s3.delete_object(Bucket='li-general-task', Key=obj['Key'])
                 
         # Add a placeholder object to represent the "directory"
-        s3.put_object(Bucket='li-general-tasks', Key=subdir)
+        s3.put_object(Bucket='li-general-task', Key=subdir)
 
 
 try:   
